@@ -1,0 +1,44 @@
+# .github/workflows/app.yml
+
+name: Product Availability Checker
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"  # Runs every 10 minutes
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      force_notify:
+        description: 'Force notification regardless of previous state'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  check-product:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5.6.0
+        with:
+          python-version: '3.x'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create .env file
+        run: |
+          echo "${{ secrets.ENVS }}" > .env
+          if [ "${{ github.event.inputs.force_notify }}" = "true" ]; then
+            echo "FORCE_NOTIFY=true" >> .env
+          fi
+
+      - name: Run script
+        run: python main.py
