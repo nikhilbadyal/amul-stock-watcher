@@ -44,16 +44,17 @@ class Product:
     available: bool
     url: str
     store: str
+    price: float
 
     def __str__(self) -> str:
-        return f"{self.name} ({'Available' if self.available else 'Unavailable'}) - {self.store}"
+        return f"{self.name} ({'Available' if self.available else 'Unavailable'}) - {self.store} - ₹{self.price}"
 
     def to_telegram_string(self) -> str:
         status = "✅ Available" if self.available else "❌ Unavailable"
         return (
             f"• {self.name}\n"
             f"  Status: {status}\n"
-            f"  Store: {self.store}\n"
+            f"  Price: ₹{self.price}\n"
             f"  Link: {self.url}\n"
         )
 # === Logging Setup ===
@@ -110,35 +111,13 @@ class AmulAPIClient:
         url = "https://shop.amul.com/api/1/entity/ms.products"
         params = {
             "fields[name]": 1,
-            "fields[brand]": 1,
-            "fields[categories]": 1,
-            "fields[collections]": 1,
             "fields[alias]": 1,
-            "fields[sku]": 1,
             "fields[price]": 1,
-            "fields[compare_price]": 1,
-            "fields[original_price]": 1,
-            "fields[images]": 1,
-            "fields[metafields]": 1,
-            "fields[discounts]": 1,
-            "fields[catalog_only]": 1,
-            "fields[is_catalog]": 1,
-            "fields[seller]": 1,
             "fields[available]": 1,
-            "fields[inventory_quantity]": 1,
-            "fields[net_quantity]": 1,
-            "fields[num_reviews]": 1,
-            "fields[avg_rating]": 1,
-            "fields[inventory_low_stock_quantity]": 1,
-            "fields[inventory_allow_out_of_stock]": 1,
+            "fields[lp_seller_ids]": 1,
             "filters[0][field]": "categories",
             "filters[0][value][0]": "protein",
             "filters[0][operator]": "in",
-            "facets": "true",
-            "facetgroup": "default_category_facet",
-            "limit": 100,
-            "total": 1,
-            "start": 0
         }
 
         data = self._make_request("GET", url, params=params)
@@ -152,7 +131,6 @@ class AmulAPIClient:
             "filters[0][field]": "pincode",
             "filters[0][value]": pincode,
             "filters[0][operator]": "regex",
-            "cf_cache": "1h"
         }
         logger.debug(f"Getting store from pincode: {pincode}")
 
@@ -283,7 +261,7 @@ class TelegramNotifier:
             message += (
                 f"• {product.name}\n"
                 f"  Status: {status}\n"
-                f"  Store: {product.store}\n"
+                f"  Price: ₹{product.price}\n"
                 f"  Link: {product.url}\n\n"
             )
 
@@ -336,7 +314,8 @@ class ProductAvailabilityChecker:
                 name=product.get('name', 'Unknown Product'),
                 available=product.get('available', 0) > 0,
                 url=f"https://shop.amul.com/product/{product.get('alias', '')}",
-                store=store
+                store=store,
+                price=float(product.get('price', 0))
             )
             for product in raw_products
         ]
@@ -356,6 +335,8 @@ class ProductAvailabilityChecker:
         if not raw_products:
             logger.error("No products retrieved from API")
             return [], []
+        else:
+            logger.info(f"Retrieved {len(raw_products)} products from API for store: {store}")
 
         products = self._create_product_objects(raw_products, store)
         available = [p for p in products if p.available]
