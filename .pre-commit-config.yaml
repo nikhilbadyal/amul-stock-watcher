@@ -32,7 +32,7 @@ repos:
         args:
           - '--strict'
           - "--config=pyproject.toml"
-        additional_dependencies: [types-requests]
+        additional_dependencies: [types-requests,types-click]
 
 ci:
     autofix_commit_msg: |

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import logging
 from dotenv import load_dotenv
 import redis
+import click
 
 # Load environment variables from .env file
 load_dotenv()
@@ -344,12 +345,15 @@ class ProductAvailabilityChecker:
 
         return available, unavailable
 
-    def run(self) -> None:
+    def run(self, force_notify: Optional[bool] = None) -> None:
         """Main workflow to check products and notify if newly available."""
         available_products, unavailable_products = self.check_availability()
         all_products = available_products + unavailable_products
 
-        if Config.FORCE_NOTIFY:
+        # Use CLI argument if provided, otherwise fall back to config
+        should_force_notify = force_notify if force_notify is not None else Config.FORCE_NOTIFY
+
+        if should_force_notify:
             logger.info(f"Force notify enabled. Sending status for all {len(all_products)} products")
             self.notifier.send_notification(all_products, force=True)
         else:
@@ -377,6 +381,13 @@ class ProductAvailabilityChecker:
 
 
 # === Main Execution ===
-if __name__ == "__main__":
+@click.command()
+@click.option('--force', is_flag=True, help='Force send notification for all products regardless of availability status')
+def main(force: bool) -> None:
+    """Check Amul product availability and send notifications."""
     checker = ProductAvailabilityChecker()
-    checker.run()
+    checker.run(force_notify=force)
+
+
+if __name__ == "__main__":
+    main()

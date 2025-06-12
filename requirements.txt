@@ -1,3 +1,4 @@
+click
 pre-commit
 python-dotenv
 redis
