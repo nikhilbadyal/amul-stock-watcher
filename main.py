@@ -1,10 +1,11 @@
 import os
 import json
 import requests
-from typing import List, Dict, Optional, Tuple, Any, Union
+from typing import List, Dict, Optional, Tuple, Any, Union, Set
 from dataclasses import dataclass
 import logging
 from dotenv import load_dotenv
+import redis
 
 # Load environment variables from .env file
 load_dotenv()
@@ -18,6 +19,12 @@ class Config:
     DEFAULT_STORE: str = os.getenv('DEFAULT_STORE','jandk')
     REQUEST_TIMEOUT: Union[int, float] = float(os.getenv('REQUEST_TIMEOUT', '3'))
     FORCE_NOTIFY: bool = os.getenv('FORCE_NOTIFY', 'False').lower() == 'true'
+    REDIS_HOST: str = os.getenv('REDIS_HOST', 'localhost')
+    REDIS_PORT: int = int(os.getenv('REDIS_PORT', '6379'))
+    REDIS_DB: int = int(os.getenv('REDIS_DB', '0'))
+    REDIS_PASSWORD: Optional[str] = os.getenv('REDIS_PASSWORD')
+    REDIS_SSL: bool = os.getenv('REDIS_SSL', 'False').lower() == 'true'
+    REDIS_KEY_PREFIX: str = os.getenv('REDIS_KEY_PREFIX', 'amul:')
 
 
 HEADERS: Dict[str, str] = {
@@ -38,7 +45,17 @@ class Product:
     url: str
     store: str
 
+    def __str__(self) -> str:
+        return f"{self.name} ({'Available' if self.available else 'Unavailable'}) - {self.store}"
 
+    def to_telegram_string(self) -> str:
+        status = "✅ Available" if self.available else "❌ Unavailable"
+        return (
+            f"• {self.name}\n"
+            f"  Status: {status}\n"
+            f"  Store: {self.store}\n"
+            f"  Link: {self.url}\n"
+        )
 # === Logging Setup ===
 logging.basicConfig(
     level=logging.INFO,
@@ -157,6 +174,83 @@ class AmulAPIClient:
         return response is not None
 
 
+# === State Management ===
+class RedisStateManager:
+    def __init__(self) -> None:
+        try:
+            self.redis_client = redis.Redis(
+                host=Config.REDIS_HOST,
+                port=Config.REDIS_PORT,
+                db=Config.REDIS_DB,
+                password=Config.REDIS_PASSWORD,
+                decode_responses=True,
+                ssl=Config.REDIS_SSL,
+                socket_connect_timeout=3,
+                socket_timeout=3,
+            )
+            # Test connection
+            self.redis_client.ping()
+            logger.info("Connected to Redis successfully")
+        except Exception as e:
+            logger.error(f"Failed to connect to Redis: {e}")
+            raise
+
+    def get_previous_state(self, store: str) -> Set[str]:
+        """Get previously available product aliases for a store."""
+        key = f"{Config.REDIS_KEY_PREFIX}{store}:available"
+        try:
+            aliases = self.redis_client.smembers(key)
+            return set(aliases) if aliases else set()
+        except Exception as e:
+            logger.error(f"Failed to get previous state from Redis: {e}")
+            return set()
+
+    def update_state(self, store: str, available_aliases: Set[str]) -> bool:
+        """Update the available products state for a store."""
+        key = f"{Config.REDIS_KEY_PREFIX}{store}:available"
+        try:
+            # Clear existing state
+            self.redis_client.delete(key)
+            # Set new state if there are available products
+            if available_aliases:
+                self.redis_client.sadd(key, *available_aliases)
+            # Set expiry for 7 days (in case script doesn't run for a while)
+            self.redis_client.expire(key, 7 * 24 * 60 * 60)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update state in Redis: {e}")
+            return False
+
+    def get_newly_available_products(self, current_products: List[Product]) -> List[Product]:
+        """Compare current state with previous state and return newly available products."""
+        if not current_products:
+            return []
+
+        store = current_products[0].store  # All products should have same store
+
+        # Get current available products
+        current_available = {p.alias for p in current_products if p.available}
+
+        # Get previously available products
+        previous_available = self.get_previous_state(store)
+
+        # Find newly available products (in current but not in previous)
+        newly_available_aliases = current_available - previous_available
+
+        # Update state with current availability
+        self.update_state(store, current_available)
+
+        # Return products that are newly available
+        newly_available_products = [
+            p for p in current_products
+            if p.available and p.alias in newly_available_aliases
+        ]
+
+        logger.info(f"Previous available: {len(previous_available)}, Current available: {len(current_available)}, Newly available: {len(newly_available_products)}")
+
+        return newly_available_products
+
+
 # === Notification Service ===
 class TelegramNotifier:
     @staticmethod
@@ -180,7 +274,10 @@ class TelegramNotifier:
         if not products_to_notify:
             return True
 
-        message = "🎉 Products Available!\n\n" if not force else "📊 Product Status Report\n\n"
+        if force:
+            message = "📊 Product Status Report\n\n"
+        else:
+            message = "🎉 New Products Available!\n\n"
         for product in products_to_notify:
             status = "✅ Available" if product.available else "❌ Unavailable"
             message += (
@@ -189,6 +286,14 @@ class TelegramNotifier:
                 f"  Store: {product.store}\n"
                 f"  Link: {product.url}\n\n"
             )
+
+        # Add cool footer
+        message += (
+            "─" * 25 + "\n"
+            "🚀 Find more cool projects at:\n"
+            "👨‍💻 https://github.com/nikhilbadyal\n"
+            "⭐ Star if you found this useful!"
+        )
 
         url = f"https://api.telegram.org/bot{Config.TELEGRAM_BOT_TOKEN}/sendMessage"
         payload = {
@@ -215,6 +320,13 @@ class ProductAvailabilityChecker:
     def __init__(self) -> None:
         self.api_client = AmulAPIClient()
         self.notifier = TelegramNotifier()
+        try:
+            self.state_manager = RedisStateManager()
+            self.use_state_management = True
+        except Exception as e:
+            logger.warning(f"Redis not available, falling back to basic notification: {e}")
+            self.state_manager = None # type:ignore[assignment]
+            self.use_state_management = False
 
     def _create_product_objects(self, raw_products: List[Dict[str, Any]], store: str) -> List[Product]:
         """Convert raw API data to Product objects."""
@@ -235,7 +347,7 @@ class ProductAvailabilityChecker:
             logger.error("PINCODE is not set")
             return [], []
 
-        store = self.api_client.get_store_from_pincode(Config.PINCODE)
+        store = self.api_client.get_store_from_pincode(Config.PINCODE) if Config.PINCODE else Config.DEFAULT_STORE
         if not self.api_client.set_store_preferences(store):
             logger.error("Failed to set store preferences")
             return [], []
@@ -252,19 +364,35 @@ class ProductAvailabilityChecker:
         return available, unavailable
 
     def run(self) -> None:
-        """Main workflow to check products and notify if available."""
+        """Main workflow to check products and notify if newly available."""
         available_products, unavailable_products = self.check_availability()
         all_products = available_products + unavailable_products
 
         if Config.FORCE_NOTIFY:
             logger.info(f"Force notify enabled. Sending status for all {len(all_products)} products")
             self.notifier.send_notification(all_products, force=True)
-        elif available_products:
-            logger.info(f"Found {len(available_products)} available products")
-            self.notifier.send_notification(available_products)
+        else:
+            if self.use_state_management and self.state_manager:
+                # Only notify for newly available products (not previously available)
+                newly_available = self.state_manager.get_newly_available_products(all_products)
 
+                if newly_available:
+                    logger.info(f"Found {len(newly_available)} newly available products")
+                    self.notifier.send_notification(newly_available)
+                else:
+                    logger.info("No newly available products to notify about")
+            else:
+                # Fallback to basic notification when Redis is not available
+                if available_products:
+                    logger.info(f"Redis not available - sending basic notification for {len(available_products)} available products")
+                    self.notifier.send_notification(available_products)
+                else:
+                    logger.info("No available products to notify about")
+
+        # Log current status
+        logger.info(f"Current status - Available: {len(available_products)}, Unavailable: {len(unavailable_products)}")
         for product in unavailable_products:
-            logger.info(f"Product unavailable: {product.name}")
+            logger.debug(f"Product unavailable: {product.name}")
 
 
 # === Main Execution ===
