@@ -16,8 +16,8 @@ load_dotenv()
 class Config:
     TELEGRAM_BOT_TOKEN: Optional[str] = os.getenv('TELEGRAM_BOT_TOKEN')
     TELEGRAM_CHANNEL_ID: Optional[str] = os.getenv('TELEGRAM_CHANNEL_ID')
-    PINCODE: Optional[str] = os.getenv('PINCODE')
-    DEFAULT_STORE: str = os.getenv('DEFAULT_STORE','jandk')
+    PINCODE: Optional[str] = os.getenv('PINCODE','110001')
+    DEFAULT_STORE: str = os.getenv('DEFAULT_STORE','delhi')
     REQUEST_TIMEOUT: Union[int, float] = float(os.getenv('REQUEST_TIMEOUT', '3'))
     FORCE_NOTIFY: bool = os.getenv('FORCE_NOTIFY', 'False').lower() == 'true'
     REDIS_HOST: str = os.getenv('REDIS_HOST', 'localhost')
@@ -46,18 +46,81 @@ class Product:
     url: str
     store: str
     price: float
+    inventory_quantity: int = 0
+    avg_rating: float = 0.0
+    num_reviews: int = 0
+    weight: int = 0  # in grams
+    product_type: str = ""
+    inventory_low_stock_quantity: int = 0
+    total_order_count: int = 0
+    compare_price: float = 0.0
+    uom: str = ""  # unit of measurement
 
     def __str__(self) -> str:
-        return f"{self.name} ({'Available' if self.available else 'Unavailable'}) - {self.store} - ₹{self.price}"
+        inventory_info = f" (Stock: {self.inventory_quantity})" if self.inventory_quantity > 0 else ""
+        rating_info = f" ⭐{self.avg_rating}" if self.avg_rating > 0 else ""
+        return f"{self.name}{rating_info} ({'Available' if self.available else 'Unavailable'}){inventory_info} - {self.store} - ₹{self.price}"
 
     def to_telegram_string(self) -> str:
         status = "✅ Available" if self.available else "❌ Unavailable"
+        inventory_info = f"  Stock: {self.inventory_quantity} units\n" if self.inventory_quantity > 0 else ""
+
+        # Rating and reviews
+        rating_info = ""
+        if self.avg_rating > 0:
+            stars = "⭐" * int(self.avg_rating)
+            rating_info = f"  Rating: {stars} {self.avg_rating}/5 ({self.num_reviews} reviews)\n"
+
+        # Weight and unit
+        weight_info = ""
+        if self.weight > 0:
+            if self.weight >= 1000:
+                weight_kg = self.weight / 1000
+                weight_info = f"  Weight: {weight_kg:.1f} kg\n"
+            else:
+                weight_info = f"  Weight: {self.weight}g\n"
+
+        # Low stock warning
+        low_stock_warning = ""
+        if (self.available and self.inventory_quantity > 0 and
+            self.inventory_low_stock_quantity > 0 and
+            self.inventory_quantity <= self.inventory_low_stock_quantity):
+            low_stock_warning = "  ⚠️ Low Stock!\n"
+
+        # Product type badge
+        type_badge = ""
+        if self.product_type:
+            if self.product_type.lower() == "bestseller":
+                type_badge = "  🏆 Bestseller\n"
+            elif self.product_type.lower() == "new":
+                type_badge = "  🆕 New Product\n"
+
+        # Popularity indicator
+        popularity_info = ""
+        if self.total_order_count > 10000:
+            popularity_info = f"  🔥 Popular ({self.total_order_count:,} orders)\n"
+
+        # Discount info
+        discount_info = ""
+        if self.compare_price > self.price:
+            discount_amount = self.compare_price - self.price
+            discount_pct = (discount_amount / self.compare_price) * 100
+            discount_info = f"  💰 Save ₹{discount_amount:.0f} ({discount_pct:.0f}% off)\n"
+
         return (
             f"• {self.name}\n"
             f"  Status: {status}\n"
             f"  Price: ₹{self.price}\n"
+            f"{discount_info}"
+            f"{inventory_info}"
+            f"{low_stock_warning}"
+            f"{rating_info}"
+            f"{weight_info}"
+            f"{type_badge}"
+            f"{popularity_info}"
             f"  Link: {self.url}\n"
         )
+
 # === Logging Setup ===
 logging.basicConfig(
     level=logging.INFO,
@@ -123,6 +186,20 @@ class AmulAPIClient:
 
         data = self._make_request("GET", url, params=params)
         return data.get('data', []) if data else []
+
+    def get_product_details(self, alias: str) -> Optional[Dict[str, Any]]:
+        """Fetch detailed product information including inventory for a specific product alias."""
+        url = "https://shop.amul.com/api/1/entity/ms.products"
+        params = {
+            "q": json.dumps({"alias": alias}),
+            "limit": 1
+        }
+
+        logger.debug(f"Fetching detailed info for product: {alias}")
+        data = self._make_request("GET", url, params=params)
+        if data and data.get('data') and len(data['data']) > 0:
+            return data['data'][0]  # type:ignore[no-any-return]
+        return None
 
     def get_store_from_pincode(self, pincode: str) -> str:
         """Get store name from pincode API."""
@@ -233,17 +310,16 @@ class RedisStateManager:
 # === Notification Service ===
 class TelegramNotifier:
     @staticmethod
-    def send_notification(products: List[Product], force: bool = False) -> bool:
+    def send_notification(products: List[Product], force: bool = False, log_to_console: bool = False) -> bool:
         """Send consolidated product availability notification via Telegram.
 
         Args:
             products: List of products to notify about
             force: If True, send notification regardless of availability status
+            log_to_console: If True, print notification to terminal instead of sending
         """
         if not all([Config.TELEGRAM_BOT_TOKEN, Config.TELEGRAM_CHANNEL_ID]):
-            logger.error("Telegram credentials are not set.")
-            return False
-
+            log_to_console = True  # Force dry run if credentials are missing
         if not products:
             return True
 
@@ -257,14 +333,9 @@ class TelegramNotifier:
             message = "📊 Product Status Report\n\n"
         else:
             message = "🎉 New Products Available!\n\n"
+
         for product in products_to_notify:
-            status = "✅ Available" if product.available else "❌ Unavailable"
-            message += (
-                f"• {product.name}\n"
-                f"  Status: {status}\n"
-                f"  Price: ₹{product.price}\n"
-                f"  Link: {product.url}\n\n"
-            )
+            message += product.to_telegram_string() + "\n"
 
         # Add cool footer
         message += (
@@ -273,6 +344,21 @@ class TelegramNotifier:
             "👨‍💻 https://github.com/nikhilbadyal\n"
             "⭐ Star if you found this useful!"
         )
+
+        # Handle dry run mode
+        if log_to_console:
+            print("\n" + "=" * 50)
+            print("DRY RUN - Telegram Notification Preview:")
+            print("=" * 50)
+            print(message)
+            print("=" * 50)
+            logger.info(f"DRY RUN: Would notify about {len(products_to_notify)} products")
+            return True
+
+        # Normal Telegram sending logic
+        if not all([Config.TELEGRAM_BOT_TOKEN, Config.TELEGRAM_CHANNEL_ID]):
+            logger.error("Telegram credentials are not set.")
+            return False
 
         url = f"https://api.telegram.org/bot{Config.TELEGRAM_BOT_TOKEN}/sendMessage"
         payload = {
@@ -308,18 +394,62 @@ class ProductAvailabilityChecker:
             self.use_state_management = False
 
     def _create_product_objects(self, raw_products: List[Dict[str, Any]], store: str) -> List[Product]:
-        """Convert raw API data to Product objects."""
-        return [
-            Product(
-                alias=product.get('alias', ''),
+        """Convert raw API data to Product objects with detailed inventory information."""
+        products = []
+
+        for product in raw_products:
+            alias = product.get('alias', '')
+            # Get detailed product information including inventory
+            detailed_info = self.api_client.get_product_details(alias)
+
+            # Default values
+            inventory_quantity = 0
+            avg_rating = 0.0
+            num_reviews = 0
+            weight = 0
+            product_type = ""
+            inventory_low_stock_quantity = 0
+            total_order_count = 0
+            compare_price = 0.0
+            uom = ""
+
+            if detailed_info:
+                inventory_quantity = int(detailed_info.get('inventory_quantity', 0))
+                avg_rating = float(detailed_info.get('avg_rating', 0.0))
+                num_reviews = int(detailed_info.get('num_reviews', 0))
+                weight = int(detailed_info.get('weight', 0))
+                inventory_low_stock_quantity = int(detailed_info.get('inventory_low_stock_quantity', 0))
+                total_order_count = int(detailed_info.get('total_order_count', 0))
+                compare_price = float(detailed_info.get('compare_price', 0.0))
+
+                # Extract product type from metafields
+                metafields = detailed_info.get('metafields', {})
+                if metafields:
+                    product_type = str(metafields.get('product_type', ''))
+                    uom = str(metafields.get('uom', ''))
+            else:
+                logger.warning(f"Could not fetch detailed info for product: {alias}")
+
+            product_obj = Product(
+                alias=alias,
                 name=product.get('name', 'Unknown Product'),
                 available=product.get('available', 0) > 0,
-                url=f"https://shop.amul.com/product/{product.get('alias', '')}",
+                url=f"https://shop.amul.com/product/{alias}",
                 store=store,
-                price=float(product.get('price', 0))
+                price=float(product.get('price', 0)),
+                inventory_quantity=inventory_quantity,
+                avg_rating=avg_rating,
+                num_reviews=num_reviews,
+                weight=weight,
+                product_type=product_type,
+                inventory_low_stock_quantity=inventory_low_stock_quantity,
+                total_order_count=total_order_count,
+                compare_price=compare_price,
+                uom=uom
             )
-            for product in raw_products
-        ]
+            products.append(product_obj)
+
+        return products
 
     def check_availability(self) -> Tuple[List[Product], List[Product]]:
         """Check product availability and return (available, unavailable) products."""
@@ -345,7 +475,7 @@ class ProductAvailabilityChecker:
 
         return available, unavailable
 
-    def run(self, force_notify: Optional[bool] = None) -> None:
+    def run(self, force_notify: Optional[bool] = None, dry_run: bool = False) -> None:
         """Main workflow to check products and notify if newly available."""
         available_products, unavailable_products = self.check_availability()
         all_products = available_products + unavailable_products
@@ -355,7 +485,7 @@ class ProductAvailabilityChecker:
 
         if should_force_notify:
             logger.info(f"Force notify enabled. Sending status for all {len(all_products)} products")
-            self.notifier.send_notification(all_products, force=True)
+            self.notifier.send_notification(all_products, force=True, log_to_console=dry_run)
         else:
             if self.use_state_management and self.state_manager:
                 # Only notify for newly available products (not previously available)
@@ -363,14 +493,14 @@ class ProductAvailabilityChecker:
 
                 if newly_available:
                     logger.info(f"Found {len(newly_available)} newly available products")
-                    self.notifier.send_notification(newly_available)
+                    self.notifier.send_notification(newly_available, log_to_console=dry_run)
                 else:
                     logger.info("No newly available products to notify about")
             else:
                 # Fallback to basic notification when Redis is not available
                 if available_products:
                     logger.info(f"Redis not available - sending basic notification for {len(available_products)} available products")
-                    self.notifier.send_notification(available_products)
+                    self.notifier.send_notification(available_products, log_to_console=dry_run)
                 else:
                     logger.info("No available products to notify about")
 
@@ -383,10 +513,14 @@ class ProductAvailabilityChecker:
 # === Main Execution ===
 @click.command()
 @click.option('--force', is_flag=True, help='Force send notification for all products regardless of availability status')
-def main(force: bool) -> None:
+@click.option('--dry-run', is_flag=True, help='Print notification to terminal instead of sending to Telegram')
+def main(force: bool, dry_run: bool) -> None:
     """Check Amul product availability and send notifications."""
+    if dry_run:
+        logger.info("DRY RUN mode enabled - notifications will be printed to terminal")
+
     checker = ProductAvailabilityChecker()
-    checker.run(force_notify=force)
+    checker.run(force_notify=force, dry_run=dry_run)
 
 
 if __name__ == "__main__":

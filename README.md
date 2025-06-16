@@ -87,8 +87,8 @@ python main.py
 |-----------------------|-------------------------------------|-----------|
 | `TELEGRAM_BOT_TOKEN`  | Your Telegram bot token             | Required  |
 | `TELEGRAM_CHANNEL_ID` | Your Telegram channel ID            | Required  |
-| `PINCODE`             | Your delivery pincode               | Required  |
-| `DEFAULT_STORE`       | Default store location              | Required  |
+| `PINCODE`             | Your delivery pincode               | 110001  |
+| `DEFAULT_STORE`       | Default store location              | delhi  |
 | `FORCE_NOTIFY`        | Send notifications for all products | false     |
 | `REQUEST_TIMEOUT`     | API request timeout in seconds      | 3         |
 | `REDIS_HOST`          | Redis server hostname               | localhost |
