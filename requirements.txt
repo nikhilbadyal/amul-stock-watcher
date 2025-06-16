@@ -1,5 +1,4 @@
 click
-pre-commit
 python-dotenv
 redis
 requests
