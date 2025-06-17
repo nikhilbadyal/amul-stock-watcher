@@ -47,8 +47,6 @@ class Product:
     store: str
     price: float
     inventory_quantity: int = 0
-    avg_rating: float = 0.0
-    num_reviews: int = 0
     weight: int = 0  # in grams
     product_type: str = ""
     inventory_low_stock_quantity: int = 0
@@ -58,18 +56,13 @@ class Product:
 
     def __str__(self) -> str:
         inventory_info = f" (Stock: {self.inventory_quantity})" if self.inventory_quantity > 0 else ""
-        rating_info = f" ⭐{self.avg_rating}" if self.avg_rating > 0 else ""
-        return f"{self.name}{rating_info} ({'Available' if self.available else 'Unavailable'}){inventory_info} - {self.store} - ₹{self.price}"
+        return f"{self.name} ({'Available' if self.available else 'Unavailable'}){inventory_info} - {self.store} - ₹{self.price}"
 
     def to_telegram_string(self) -> str:
         status = "✅ Available" if self.available else "❌ Unavailable"
         inventory_info = f"  Stock: {self.inventory_quantity} units\n" if self.inventory_quantity > 0 else ""
 
-        # Rating and reviews
-        rating_info = ""
-        if self.avg_rating > 0:
-            stars = "⭐" * int(self.avg_rating)
-            rating_info = f"  Rating: {stars} {self.avg_rating}/5 ({self.num_reviews} reviews)\n"
+
 
         # Weight and unit
         weight_info = ""
@@ -114,7 +107,6 @@ class Product:
             f"{discount_info}"
             f"{inventory_info}"
             f"{low_stock_warning}"
-            f"{rating_info}"
             f"{weight_info}"
             f"{type_badge}"
             f"{popularity_info}"
@@ -404,8 +396,6 @@ class ProductAvailabilityChecker:
 
             # Default values
             inventory_quantity = 0
-            avg_rating = 0.0
-            num_reviews = 0
             weight = 0
             product_type = ""
             inventory_low_stock_quantity = 0
@@ -415,8 +405,6 @@ class ProductAvailabilityChecker:
 
             if detailed_info:
                 inventory_quantity = int(detailed_info.get('inventory_quantity', 0))
-                avg_rating = float(detailed_info.get('avg_rating', 0.0))
-                num_reviews = int(detailed_info.get('num_reviews', 0))
                 weight = int(detailed_info.get('weight', 0))
                 inventory_low_stock_quantity = int(detailed_info.get('inventory_low_stock_quantity', 0))
                 total_order_count = int(detailed_info.get('total_order_count', 0))
@@ -438,8 +426,6 @@ class ProductAvailabilityChecker:
                 store=store,
                 price=float(product.get('price', 0)),
                 inventory_quantity=inventory_quantity,
-                avg_rating=avg_rating,
-                num_reviews=num_reviews,
                 weight=weight,
                 product_type=product_type,
                 inventory_low_stock_quantity=inventory_low_stock_quantity,
