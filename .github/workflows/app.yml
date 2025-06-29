@@ -15,6 +15,11 @@ on:
         required: false
         type: boolean
         default: false
+      DEBUG_ENABLED:
+        type: boolean
+        description: 'Run the build with tmate debugging enabled.'
+        required: false
+        default: false
 
 jobs:
   check-product:
@@ -39,6 +44,12 @@ jobs:
           if [ "${{ github.event.inputs.force_notify }}" = "true" ]; then
             echo "FORCE_NOTIFY=true" >> .env
           fi
+
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@master
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.DEBUG_ENABLED }}
+        with:
+          detached: true
 
       - name: Run script
         run: python main.py
