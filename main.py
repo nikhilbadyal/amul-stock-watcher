@@ -129,6 +129,8 @@ class AmulAPIClient:
     def __init__(self) -> None:
         self.session = requests.Session()
         self.session.headers.update(HEADERS)
+        # First request to homepage to get Cloudflare cookies
+        self.session.get("https://shop.amul.com")
 
     def _make_request(self, method: str, url: str, **kwargs: Any) -> Optional[Dict[str, Any]]:
         """Generic request handler with error handling.
