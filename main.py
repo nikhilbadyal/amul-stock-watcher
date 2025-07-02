@@ -138,29 +138,24 @@ class AmulAPIClient:
         - Plain text success responses (returns {"status": "success"})
         - All other cases (returns None)
         """
+        response = self.session.request(
+            method,
+            url,
+            timeout=float(Config.REQUEST_TIMEOUT),
+            **kwargs
+        )
+        response.raise_for_status()
+
+        # First try to parse as JSON
         try:
-            response = self.session.request(
-                method,
-                url,
-                timeout=float(Config.REQUEST_TIMEOUT),
-                **kwargs
-            )
-            response.raise_for_status()
+            return response.json()  # type:ignore[no-any-return]
+        except ValueError:
+            # If not JSON, check for plain text success message
+            if response.text.strip().lower() in ("updated successfully", "ok", "success"):
+                return {"status": "success"}
 
-            # First try to parse as JSON
-            try:
-                return response.json() # type:ignore[no-any-return]
-            except ValueError:
-                # If not JSON, check for plain text success message
-                if response.text.strip().lower() in ("updated successfully", "ok", "success"):
-                    return {"status": "success"}
-
-                # For other plain text responses, return the text in a structured way
-                return {"text_response": response.text.strip()}
-
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Request failed: {e}")
-            return None
+            # For other plain text responses, return the text in a structured way
+            return {"text_response": response.text.strip()}
 
     def get_products(self) -> List[Dict[str, Any]]:
         """Fetch protein products from Amul API."""
