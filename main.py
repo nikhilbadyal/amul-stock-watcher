@@ -198,6 +198,7 @@ class AmulAPIClient:
             "filters[0][field]": "pincode",
             "filters[0][value]": pincode,
             "filters[0][operator]": "regex",
+            "cf_cache":"1h"
         }
         logger.debug(f"Getting store from pincode: {pincode}")
 
