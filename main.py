@@ -14,6 +14,8 @@ from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.chrome.service import Service as ChromeService
 import json
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 load_dotenv()
 
@@ -40,6 +42,7 @@ class Config:
     REDIS_PASSWORD: Optional[str] = os.getenv('REDIS_PASSWORD')
     REDIS_SSL: bool = os.getenv('REDIS_SSL', 'False').lower() == 'true'
     REDIS_KEY_PREFIX: str = os.getenv('REDIS_KEY_PREFIX', 'amul:')
+    MAX_WORKERS: int = int(os.getenv('MAX_WORKERS', '8'))  # Number of parallel workers for fetching product details
 
 HEADERS: Dict[str, str] = {
     "Accept": "application/json, text/plain, */*",
@@ -144,21 +147,55 @@ def get_response_body(driver: webdriver.Chrome, request_id: str) -> Optional[Dic
 
 class AmulAPIClient:
     def __init__(self) -> None:
+        self.driver = self._create_driver()
+        self.wait = WebDriverWait(self.driver, 15)
+        self.driver.get("https://shop.amul.com/en/")
+        time.sleep(1)  # Reduced initial page load wait time
+        self._driver_pool_lock = threading.Lock()
+        self._driver_pool: List[webdriver.Chrome] = []
+
+    def _create_driver(self) -> webdriver.Chrome:
+        """Create a new Chrome WebDriver instance with optimized settings."""
         chrome_options = Options()
         chrome_options.add_argument("--headless")
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-extensions")
+        chrome_options.add_argument("--disable-logging")
+        chrome_options.add_argument("--disable-default-apps")
+        chrome_options.add_argument("--disable-background-timer-throttling")
+        chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+        chrome_options.add_argument("--disable-renderer-backgrounding")
         chrome_options.set_capability("goog:loggingPrefs", {"performance": "ALL"})
-        self.driver = webdriver.Chrome(service=ChromeService(), options=chrome_options)
-        self.driver.execute_cdp_cmd('Network.enable', {})
-        self.wait = WebDriverWait(self.driver, 15)
-        self.driver.get("https://shop.amul.com/en/")
-        time.sleep(2)
+        driver = webdriver.Chrome(service=ChromeService(), options=chrome_options)
+        driver.execute_cdp_cmd('Network.enable', {})
+        return driver
+
+    def _get_driver_from_pool(self) -> webdriver.Chrome:
+        """Get a WebDriver instance from the pool or create a new one."""
+        with self._driver_pool_lock:
+            if self._driver_pool:
+                return self._driver_pool.pop()
+            else:
+                return self._create_driver()
+
+    def _return_driver_to_pool(self, driver: webdriver.Chrome) -> None:
+        """Return a WebDriver instance to the pool."""
+        with self._driver_pool_lock:
+            self._driver_pool.append(driver)
 
     # noinspection PyBroadException
     def __del__(self) -> None:
         try:
             self.driver.quit()
+            # Clean up driver pool
+            with self._driver_pool_lock:
+                for driver in self._driver_pool:
+                    try:
+                        driver.quit()
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -185,7 +222,7 @@ class AmulAPIClient:
     def get_products(self) -> List[Dict[str, Any]]:
         protein_url = "https://shop.amul.com/en/browse/protein"
         self.driver.get(protein_url)
-        time.sleep(5)
+        time.sleep(2)  # Reduced from 5 to 2 seconds
         api_requests = get_api_requests(self.driver, endpoint_filter="ms.products")
         for request_id, url in api_requests:
             if "filters[0][field]=categories" in url:
@@ -199,13 +236,18 @@ class AmulAPIClient:
         return []
 
     def get_product_details(self, alias: str) -> Optional[Dict[str, Any]]:
+        """Get product details using the main driver instance (for backward compatibility)."""
+        return self._get_product_details_with_driver(alias, self.driver)
+
+    def _get_product_details_with_driver(self, alias: str, driver: webdriver.Chrome) -> Optional[Dict[str, Any]]:
+        """Get product details using a specific WebDriver instance."""
         product_url = f"https://shop.amul.com/en/product/{alias}"
-        self.driver.get(product_url)
-        time.sleep(3)
-        api_requests = get_api_requests(self.driver, endpoint_filter="ms.products")
+        driver.get(product_url)
+        time.sleep(1.5)  # Reduced sleep time for better performance
+        api_requests = get_api_requests(driver, endpoint_filter="ms.products")
         for request_id, url in api_requests:
             if f'"alias":"{alias}"' in url or alias in url:
-                body = get_response_body(self.driver, request_id)
+                body = get_response_body(driver, request_id)
                 if body and 'body' in body:
                     try:
                         data: Dict[str, Any] = json.loads(body['body'])
@@ -215,6 +257,32 @@ class AmulAPIClient:
                 break
         logger.warning(f"Could not fetch detailed info for product: {alias}")
         return None
+
+    def get_product_details_parallel(self, aliases: List[str], max_workers: int = 4) -> Dict[str, Optional[Dict[str, Any]]]:
+        """Get product details for multiple aliases in parallel."""
+        results: Dict[str, Optional[Dict[str, Any]]] = {}
+
+        def fetch_single_product(alias: str) -> Tuple[str, Optional[Dict[str, Any]]]:
+            driver = self._get_driver_from_pool()
+            try:
+                result = self._get_product_details_with_driver(alias, driver)
+                return alias, result
+            finally:
+                self._return_driver_to_pool(driver)
+
+        logger.info(f"Fetching detailed info for {len(aliases)} products using {max_workers} workers")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_alias = {executor.submit(fetch_single_product, alias): alias for alias in aliases}
+
+            # Process completed tasks
+            for future in as_completed(future_to_alias):
+                alias, result = future.result()
+                results[alias] = result
+                logger.debug(f"Completed fetching details for: {alias}")
+
+        logger.info(f"Successfully fetched details for {len([r for r in results.values() if r is not None])}/{len(aliases)} products")
+        return results
 
     def get_store_from_pincode(self, _: str) -> str:
         return ""
@@ -337,9 +405,19 @@ class ProductAvailabilityChecker:
 
     def _create_product_objects(self, raw_products: List[Dict[str, Any]], store: str) -> List[Product]:
         products: List[Product] = []
+
+        # Extract aliases for parallel fetching
+        aliases = [product.get('alias', '') for product in raw_products if product.get('alias')]
+
+        # Fetch detailed info for all products in parallel
+        detailed_info_map = self.api_client.get_product_details_parallel(aliases, max_workers=Config.MAX_WORKERS)
+
+        # Create product objects with detailed info
         for product in raw_products:
             alias = product.get('alias', '')
-            detailed_info = self.api_client.get_product_details(alias)
+            detailed_info = detailed_info_map.get(alias)
+
+            # Extract detailed information
             inventory_quantity = 0
             weight = 0
             product_type = ""
@@ -347,6 +425,7 @@ class ProductAvailabilityChecker:
             total_order_count = 0
             compare_price = 0.0
             uom = ""
+
             if detailed_info:
                 inventory_quantity = int(detailed_info.get('inventory_quantity', 0))
                 weight = int(detailed_info.get('weight', 0))
@@ -357,6 +436,7 @@ class ProductAvailabilityChecker:
                 if metafields:
                     product_type = str(metafields.get('product_type', ''))
                     uom = str(metafields.get('uom', ''))
+
             product_obj = Product(
                 alias=alias,
                 name=product.get('name', 'Unknown Product'),
@@ -373,6 +453,7 @@ class ProductAvailabilityChecker:
                 uom=uom
             )
             products.append(product_obj)
+
         return products
 
     def check_availability(self) -> Tuple[List[Product], List[Product]]:
