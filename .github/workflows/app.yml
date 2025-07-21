@@ -11,13 +11,13 @@ on:
   workflow_dispatch:
     inputs:
       force_notify:
-        description: 'Force notification regardless of previous state'
+        description: "Force notification regardless of previous state"
         required: false
         type: boolean
         default: false
       DEBUG_ENABLED:
         type: boolean
-        description: 'Run the build with tmate debugging enabled.'
+        description: "Run the build with tmate debugging enabled."
         required: false
         default: false
 
@@ -32,11 +32,20 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5.6.0
         with:
-          python-version: '3.x'
-          cache: 'pip'
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Cache Chrome and ChromeDriver
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/selenium
+            /usr/bin/google-chrome*
+            /usr/bin/chromedriver*
+          key: chrome-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt --disable-pip-version-check
 
       - name: Create .env file
         run: |
@@ -53,3 +62,7 @@ jobs:
 
       - name: Run script
         run: python main.py
+        env:
+          # Optimize Chrome for CI
+          CHROME_NO_SANDBOX: "true"
+          CHROME_DISABLE_GPU: "true"

@@ -42,7 +42,7 @@ class Config:
     REDIS_PASSWORD: Optional[str] = os.getenv('REDIS_PASSWORD')
     REDIS_SSL: bool = os.getenv('REDIS_SSL', 'False').lower() == 'true'
     REDIS_KEY_PREFIX: str = os.getenv('REDIS_KEY_PREFIX', 'amul:')
-    MAX_WORKERS: int = int(os.getenv('MAX_WORKERS', '8'))  # Number of parallel workers for fetching product details
+    MAX_WORKERS: int = int(os.getenv('MAX_WORKERS', '12'))  # Increased for CI environments
 
 HEADERS: Dict[str, str] = {
     "Accept": "application/json, text/plain, */*",
@@ -148,9 +148,9 @@ def get_response_body(driver: webdriver.Chrome, request_id: str) -> Optional[Dic
 class AmulAPIClient:
     def __init__(self) -> None:
         self.driver = self._create_driver()
-        self.wait = WebDriverWait(self.driver, 15)
+        self.wait = WebDriverWait(self.driver, 10)
         self.driver.get("https://shop.amul.com/en/")
-        time.sleep(1)  # Reduced initial page load wait time
+        time.sleep(0.5)
         self._driver_pool_lock = threading.Lock()
         self._driver_pool: List[webdriver.Chrome] = []
 
@@ -167,7 +167,28 @@ class AmulAPIClient:
         chrome_options.add_argument("--disable-background-timer-throttling")
         chrome_options.add_argument("--disable-backgrounding-occluded-windows")
         chrome_options.add_argument("--disable-renderer-backgrounding")
+        chrome_options.add_argument("--disable-web-security")
+        chrome_options.add_argument("--disable-features=TranslateUI")
+        chrome_options.add_argument("--disable-ipc-flooding-protection")
+        chrome_options.add_argument("--disable-hang-monitor")
+        chrome_options.add_argument("--disable-client-side-phishing-detection")
+        chrome_options.add_argument("--disable-popup-blocking")
+        chrome_options.add_argument("--disable-prompt-on-repost")
+        chrome_options.add_argument("--disable-sync")
+        chrome_options.add_argument("--metrics-recording-only")
+        chrome_options.add_argument("--no-first-run")
+        chrome_options.add_argument("--safebrowsing-disable-auto-update")
+        chrome_options.add_argument("--disable-background-networking")
+        chrome_options.add_argument("--disable-default-apps")
+        chrome_options.add_argument("--disable-component-extensions-with-background-pages")
         chrome_options.set_capability("goog:loggingPrefs", {"performance": "ALL"})
+
+        # Use system Chrome if available in CI
+        if os.getenv('CHROME_NO_SANDBOX'):
+            chrome_options.add_argument("--no-sandbox")
+        if os.getenv('CHROME_DISABLE_GPU'):
+            chrome_options.add_argument("--disable-gpu")
+
         driver = webdriver.Chrome(service=ChromeService(), options=chrome_options)
         driver.execute_cdp_cmd('Network.enable', {})
         return driver
@@ -243,7 +264,7 @@ class AmulAPIClient:
         """Get product details using a specific WebDriver instance."""
         product_url = f"https://shop.amul.com/en/product/{alias}"
         driver.get(product_url)
-        time.sleep(1.5)  # Reduced sleep time for better performance
+        time.sleep(0.8)
         api_requests = get_api_requests(driver, endpoint_filter="ms.products")
         for request_id, url in api_requests:
             if f'"alias":"{alias}"' in url or alias in url:
