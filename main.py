@@ -286,8 +286,7 @@ class AmulAPIClient:
         def fetch_single_product(alias: str) -> Tuple[str, Optional[Dict[str, Any]]]:
             driver = self._get_driver_from_pool()
             try:
-                result = self._get_product_details_with_driver(alias, driver)
-                return alias, result
+                return alias, self._get_product_details_with_driver(alias, driver)
             finally:
                 self._return_driver_to_pool(driver)
 
