@@ -24,7 +24,7 @@ class Config:
     TELEGRAM_CHANNEL_ID: Optional[str] = os.getenv("TELEGRAM_CHANNEL_ID")
     PINCODE: Optional[str] = os.getenv("PINCODE", "110001")
     DEFAULT_STORE: str = os.getenv("DEFAULT_STORE", "delhi")
-    REQUEST_TIMEOUT: Union[int, float] = float(os.getenv("REQUEST_TIMEOUT", "3"))
+    REQUEST_TIMEOUT: int | float = float(os.getenv("REQUEST_TIMEOUT", "3"))
     FORCE_NOTIFY: bool = os.getenv("FORCE_NOTIFY", "False").lower() == "true"
     REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")
     REDIS_PORT: int = int(os.getenv("REDIS_PORT", "6379"))

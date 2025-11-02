@@ -29,6 +29,35 @@ class ProductAvailabilityChecker:
             self.state_manager = None
             self.use_state_management = False
 
+    def _extract_detailed_info(self, detailed_info: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Extract and convert detailed product information with safe defaults."""
+        if not detailed_info:
+            return {
+                "inventory_quantity": 0,
+                "weight": 0,
+                "inventory_low_stock_quantity": 0,
+                "total_order_count": 0,
+                "compare_price": 0.0,
+                "product_type": "",
+                "uom": "",
+            }
+
+        # Extract numeric fields with safe conversion
+        extracted: Dict[str, Any] = {
+            "inventory_quantity": int(detailed_info.get("inventory_quantity", 0)),
+            "weight": int(detailed_info.get("weight", 0)),
+            "inventory_low_stock_quantity": int(detailed_info.get("inventory_low_stock_quantity", 0)),
+            "total_order_count": int(detailed_info.get("total_order_count", 0)),
+            "compare_price": float(detailed_info.get("compare_price", 0.0)),
+        }
+
+        # Extract metafields
+        metafields = detailed_info.get("metafields", {})
+        extracted["product_type"] = str(metafields.get("product_type", ""))
+        extracted["uom"] = str(metafields.get("uom", ""))
+
+        return extracted
+
     def _create_product_objects(self, raw_products: List[Dict[str, Any]], store: str) -> List[Product]:
         products: List[Product] = []
         aliases = [product.get("alias", "") for product in raw_products if product.get("alias")]
@@ -40,21 +69,7 @@ class ProductAvailabilityChecker:
                 continue
 
             detailed_info = detailed_info_map.get(alias)
-            inventory_quantity = int(detailed_info.get("inventory_quantity", 0)) if detailed_info else 0
-            weight = int(detailed_info.get("weight", 0)) if detailed_info else 0
-            inventory_low_stock_quantity = (
-                int(detailed_info.get("inventory_low_stock_quantity", 0)) if detailed_info else 0
-            )
-            total_order_count = int(detailed_info.get("total_order_count", 0)) if detailed_info else 0
-            compare_price = float(detailed_info.get("compare_price", 0.0)) if detailed_info else 0.0
-            product_type = ""
-            uom = ""
-
-            if detailed_info:
-                metafields = detailed_info.get("metafields", {})
-                if metafields:
-                    product_type = str(metafields.get("product_type", ""))
-                    uom = str(metafields.get("uom", ""))
+            info = self._extract_detailed_info(detailed_info)
 
             product_obj = Product(
                 alias=alias,
@@ -63,13 +78,7 @@ class ProductAvailabilityChecker:
                 url=f"https://shop.amul.com/product/{alias}",
                 store=store,
                 price=float(product.get("price", 0)),
-                inventory_quantity=inventory_quantity,
-                weight=weight,
-                product_type=product_type,
-                inventory_low_stock_quantity=inventory_low_stock_quantity,
-                total_order_count=total_order_count,
-                compare_price=compare_price,
-                uom=uom,
+                **info,
             )
             products.append(product_obj)
 
