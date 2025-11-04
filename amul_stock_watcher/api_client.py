@@ -99,13 +99,15 @@ class AmulAPIClient:
         chrome_options.add_argument("--disable-default-apps")
         chrome_options.add_argument("--disable-component-extensions-with-background-pages")
         chrome_options.set_capability("goog:loggingPrefs", {"performance": "ALL"})
+        # Use Chromium binary for aarch64 compatibility
+        chrome_options.binary_location = "/usr/bin/chromium"
 
         if os.getenv("CHROME_NO_SANDBOX"):
             chrome_options.add_argument("--no-sandbox")
         if os.getenv("CHROME_DISABLE_GPU"):
             chrome_options.add_argument("--disable-gpu")
 
-        driver = webdriver.Chrome(service=ChromeService(), options=chrome_options)
+        driver = webdriver.Chrome(service=ChromeService(executable_path="/usr/bin/chromedriver"), options=chrome_options)
         driver.execute_cdp_cmd("Network.enable", {})
         return driver
 

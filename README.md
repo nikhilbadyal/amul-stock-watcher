@@ -24,6 +24,56 @@ A Python script that monitors product availability on the Amul Shop website and 
 
 ### Installation
 
+#### Option 1: Docker (Recommended)
+
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/amul-stock-watcher.git
+cd amul-stock-watcher
+```
+
+2. Create a `.env` file in the project root with your configuration:
+```env
+# Telegram Configuration
+TELEGRAM_BOT_TOKEN=your_bot_token
+TELEGRAM_CHANNEL_ID=your_channel_id
+
+# Store Configuration
+PINCODE=your_pincode
+DEFAULT_STORE=your_store
+
+# Notification Settings (optional)
+FORCE_NOTIFY=false
+REQUEST_TIMEOUT=3
+
+# Redis Configuration (connect to external Redis)
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=your_redis_password
+REDIS_KEY_PREFIX=amul:
+```
+
+3. Choose how to run the application:
+
+**Option A: Scheduled (Recommended) - Runs automatically every 10 minutes**
+```bash
+docker-compose up -d scheduler
+```
+
+**Option B: Manual run - Run once and exit**
+```bash
+docker-compose --profile manual up app
+```
+
+**Option C: One-time dry run (for testing)**
+```bash
+docker-compose --profile manual run --rm app python main.py --dry-run
+```
+
+The scheduled service will run automatically every 5 minutes. Make sure Redis is running externally.
+
+#### Option 2: Manual Installation
+
 1. Clone the repository:
 ```bash
 git clone https://github.com/yourusername/amul-stock-watcher.git
@@ -112,6 +162,47 @@ The script can be automated using cron jobs or similar scheduling tools. Example
 ```bash
 */10 * * * * cd /path/to/project && python main.py
 ```
+
+## 🐳 Docker Usage
+
+### Docker Commands
+
+**Scheduled Service (Recommended):**
+```bash
+# Start the scheduler (runs every 10 minutes automatically)
+docker-compose up -d scheduler
+
+# View scheduler logs
+docker-compose logs -f scheduler
+
+# Stop the scheduler
+docker-compose down
+```
+
+**Manual/One-time Commands:**
+```bash
+# Run once manually
+docker-compose --profile manual up app
+
+# Run one-time check (dry-run mode for testing)
+docker-compose --profile manual run --rm app python main.py --dry-run
+
+# Run with force notification
+docker-compose --profile manual run --rm app python main.py --force
+
+# Rebuild and restart (after code changes)
+docker-compose up -d --build scheduler
+```
+
+### Docker Environment Variables
+
+All environment variables from the manual installation work with Docker. The docker-compose.yml file automatically loads from a `.env` file in the project root.
+
+### Troubleshooting Docker
+
+- **Chrome not starting**: Ensure Docker has access to sufficient memory (2GB+ recommended)
+- **Permission issues**: The container runs as a non-root user for security
+- **Redis connection issues**: Ensure the Redis service is healthy with `docker-compose ps`
 
 ## 📝 Notes
 
