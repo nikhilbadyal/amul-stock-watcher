@@ -32,7 +32,7 @@ class Config:
     REDIS_PASSWORD: Optional[str] = os.getenv("REDIS_PASSWORD")
     REDIS_SSL: bool = os.getenv("REDIS_SSL", "False").lower() == "true"
     REDIS_KEY_PREFIX: str = os.getenv("REDIS_KEY_PREFIX", "amul:")
-    MAX_WORKERS: int = int(os.getenv("MAX_WORKERS", "4"))
+    MAX_WORKERS: int = int(os.getenv("MAX_WORKERS", "8"))
 
 
 HEADERS: Dict[str, str] = {
