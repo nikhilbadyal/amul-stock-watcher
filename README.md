@@ -198,6 +198,30 @@ docker-compose up -d --build scheduler
 
 All environment variables from the manual installation work with Docker. The docker-compose.yml file automatically loads from a `.env` file in the project root.
 
+### Docker Health Checks
+
+The scheduler service includes comprehensive health checks that monitor:
+
+- **Redis Connection**: Verifies connectivity to the Redis server
+- **Product Fetch Activity**: Checks if products were successfully fetched within the last hour
+
+**Health Check Configuration:**
+- **Interval**: Every 30 seconds
+- **Timeout**: 15 seconds per check
+- **Retries**: 3 failed attempts before marking unhealthy
+- **Start Period**: 60 seconds grace period after container start
+
+**Activity Monitoring:**
+- Container writes a timestamp after each successful product fetch
+- Health check fails if no successful fetch occurred in the last hour
+- First run is considered healthy (no timestamp file exists yet)
+
+**Check Health Status:**
+```bash
+docker-compose ps
+docker inspect amul-stock-watcher-scheduler | grep -A 5 "Health"
+```
+
 ### Troubleshooting Docker
 
 - **Chrome not starting**: Ensure Docker has access to sufficient memory (2GB+ recommended)

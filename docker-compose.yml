@@ -29,3 +29,9 @@ services:
       - ./.env:/app/.env:ro
     restart: unless-stopped
     command: ["/bin/bash", "-c", "echo 'Starting Amul Stock Watcher Scheduler...' && while true; do echo \"$$(date): Running stock check...\"; python main.py; echo \"$$(date): Check complete. Sleeping for 2 minutes...\"; sleep 120; done"]
+    healthcheck:
+      test: ["CMD", "python", "/app/healthcheck.py"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 60s

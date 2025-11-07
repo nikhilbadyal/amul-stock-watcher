@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from .api_client import AmulAPIClient
@@ -96,7 +98,28 @@ class ProductAvailabilityChecker:
         products = self._create_product_objects(raw_products, store)
         available = [p for p in products if p.available]
         unavailable = [p for p in products if not p.available]
+
+        # Write timestamp after successful product fetch
+        self._write_last_fetch_timestamp()
+
         return available, unavailable
+
+    def _write_last_fetch_timestamp(self) -> None:
+        """Write the current timestamp to indicate successful product fetch."""
+        try:
+            timestamp_file = '/app/.last_fetch_timestamp'
+            current_time = time.time()
+
+            # Ensure the directory exists
+            os.makedirs(os.path.dirname(timestamp_file), exist_ok=True)
+
+            # Write the timestamp
+            with open(timestamp_file, 'w') as f:
+                f.write(str(current_time))
+
+            logger.debug("Updated last fetch timestamp: %s", current_time)
+        except Exception as e:
+            logger.warning("Failed to write last fetch timestamp: %s", e)
 
     def _handle_notifications(
         self,

@@ -136,6 +136,9 @@ ENV/
 env.bak/
 venv.bak/
 
+# Health check timestamp
+.last_fetch_timestamp
+
 # Spyder project settings
 .spyderproject
 .spyproject

@@ -48,3 +48,6 @@ sonar-project.properties
 # Temporary files
 *.tmp
 *.temp
+
+# Health check timestamp
+.last_fetch_timestamp
