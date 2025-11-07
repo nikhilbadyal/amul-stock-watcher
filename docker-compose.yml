@@ -1,21 +1,5 @@
 services:
-  app:
-    build: .
-    container_name: amul-stock-watcher
-    environment:
-      - REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-3}
-      # Chrome/Selenium Configuration
-      - CHROME_NO_SANDBOX=${CHROME_NO_SANDBOX:-true}
-      - CHROME_DISABLE_GPU=${CHROME_DISABLE_GPU:-true}
-      - BINARY_LOCATION=${BINARY_LOCATION:-/usr/bin/chromedriver}
-    volumes:
-      # Mount .env file if it exists locally
-      - ./.env:/app/.env:ro
-    restart: no
-    command: ["python", "main.py"]
-    profiles: ["manual"]
-
-  scheduler:
+  amul-stock-watcher-scheduler:
     build: .
     container_name: amul-stock-watcher-scheduler
     environment:
