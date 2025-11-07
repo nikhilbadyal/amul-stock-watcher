@@ -37,8 +37,7 @@ class TelegramNotifier:
             "─" * 25
             + "\n"
             + "🚀 Find more cool projects at:\n"
-            + "👨‍💻 https://github.com/nikhilbadyal\n"
-            + "⭐ Star if you found this useful!"
+            + "👨‍💻 @nikhilbadyal_projects"
         )
 
         if log_to_console:
