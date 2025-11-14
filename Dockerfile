@@ -6,13 +6,13 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies for Chrome and Selenium
+# Install system dependencies for Chrome and Selenium, and Chromium (which supports arm64)
 RUN apt-get update && apt-get install -y \
-    wget \
-    gnupg \
+    chromium \
+    chromium-driver \
     curl \
-    unzip \
     fonts-liberation \
+    gnupg \
     libasound2 \
     libatk-bridge2.0-0 \
     libatk1.0-0 \
@@ -25,12 +25,9 @@ RUN apt-get update && apt-get install -y \
     libxcomposite1 \
     libxdamage1 \
     libxrandr2 \
+    unzip \
+    wget \
     xdg-utils \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Chromium (which supports arm64)
-RUN apt-get update \
-    && apt-get install -y chromium chromium-driver \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app directory
