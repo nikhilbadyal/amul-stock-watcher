@@ -152,6 +152,7 @@ class ProductAvailabilityChecker:
             logger.info("No available products to notify about")
 
     def run(self, force_notify: Optional[bool] = None, dry_run: bool = False) -> None:
+        start_time = time.perf_counter()
         available_products, unavailable_products = self.check_availability()
         all_products = available_products + unavailable_products
         should_force_notify = force_notify if force_notify is not None else Config.FORCE_NOTIFY
@@ -163,3 +164,5 @@ class ProductAvailabilityChecker:
         )
         for product in unavailable_products:
             logger.debug("Product unavailable: %s", product.name)
+        elapsed = time.perf_counter() - start_time
+        logger.info("Run completed in %.2f seconds", elapsed)
