@@ -12,7 +12,7 @@ services:
       # Mount .env file if it exists locally
       - ./.env:/app/.env:ro
     restart: unless-stopped
-    command: ["/bin/bash", "-c", "echo 'Starting Amul Stock Watcher Scheduler...' && while true; do echo \"$$(date): Running stock check...\"; python main.py; echo \"$$(date): Check complete. Sleeping for 2 minutes...\"; sleep 120; done"]
+    command: ["/bin/bash", "-c", "echo 'Starting Amul Stock Watcher Scheduler...' && while true; do echo \"$$(date): Running stock check...\"; python main.py; echo \"$$(date): Check complete. Sleeping for 20 sec...\"; sleep 20; done"]
     healthcheck:
       test: ["CMD", "python", "/app/healthcheck.py"]
       interval: 30s
